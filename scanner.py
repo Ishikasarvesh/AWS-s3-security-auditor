@@ -21,6 +21,7 @@ Requires read-only AWS credentials (see IAM policy in README).
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 
@@ -187,6 +188,10 @@ def main():
     parser.add_argument("--profile", help="AWS named profile to use", default=None)
     parser.add_argument("--region", help="AWS region", default="us-east-1")
     parser.add_argument("--out", help="Output JSON report path", default="report.json")
+    parser.add_argument("--csv", action="store_true", help="Also export findings.csv")
+    parser.add_argument("--html", action="store_true", help="Also generate report.html")
+    parser.add_argument("--slack", action="store_true", help="Send Slack alert for Critical findings")
+    parser.add_argument("--email", action="store_true", help="Send email alert for Critical findings")
     args = parser.parse_args()
 
     session = get_session(args.profile)
@@ -218,7 +223,36 @@ def main():
         json.dump(report, f, indent=2, default=str)
 
     print(f"\n[*] Full report written to {args.out}")
-    print("[*] Run `python report.py` to generate an HTML summary.")
+
+    if args.csv:
+        from export_csv import export as export_csv
+        count = export_csv(report, "findings.csv")
+        print(f"[*] Exported {count} finding(s) to findings.csv")
+
+    if args.html:
+        from report import build_report
+        with open("report.html", "w") as f:
+            f.write(build_report(report))
+        print("[*] HTML report written to report.html")
+
+    if args.slack or args.email:
+        from alert import collect_alertable_findings, build_summary_text, send_slack, send_email
+        alertable = collect_alertable_findings(report, "CRITICAL")
+        summary = build_summary_text(alertable, report["scan_time"])
+        if summary:
+            if args.slack:
+                webhook = os.environ.get("SLACK_WEBHOOK_URL")
+                if webhook:
+                    send_slack(webhook, summary)
+                else:
+                    print("[!] SLACK_WEBHOOK_URL not set — skipping Slack alert.")
+            if args.email:
+                send_email(summary)
+        else:
+            print("[*] No Critical findings — no alert sent.")
+
+    if not (args.csv or args.html):
+        print("[*] Run `python report.py` for HTML or `python export_csv.py` for CSV.")
 
 
 if __name__ == "__main__":

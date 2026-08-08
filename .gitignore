@@ -1,5 +1,6 @@
 report.json
 report.html
+findings.csv
 __pycache__/
 *.pyc
 .env
